@@ -1,0 +1,85 @@
+Q1. Why is it important to #ifdef out methods and datastructures that aren't used for different versions of randtrack?
+
+It is important to #ifdef out methods and datastructures because if you do not, then the methods and datastructures of one version of randtrack will interfere with the methods and datastructures with another version of randtrack.
+
+Q2. How difficult was using TM compared to implementing global lock above?
+
+Implementing TM was almost the same as global lock in terms of difficultly (remove the mutexes and wrap the code with __transaction_atomic{}).
+
+Q3. Can you implement this without modifying the hash class, or without knowing its internal implementation?
+
+No, we cannot implement this without knowing the internal implementation. We need to know the behavior of the hash function in order to lock the elements correctly. For example, if say upon collision, instead of adding a new element to the linked list, the algorithm looks for the next available entry in the hash table, then our lock logic has to reflect that. In general, we will have to modify the hash class in order to implement these "finer-grain locks".
+
+Q4. Can you properly implement this solely by modifying the hash class methods lookup and insert? Explain.
+
+No, we cannot simply just modify lookup and insert. We have to merge lookup and insert together into one function and the functionality of these two operations must be locked together. Otherwise, a double insert may occur. To understand why this may occur, consider this: you have two threads, thread A and thread B, and this sequence of calls:
+ 
+1. A calls lookup() and returns, the result of lookup() is false. Context switch to B.
+2. B calls lookup() and returns, the result of lookup() is false. Context switch to A.
+3. A acquires lock and inserts. A releases the lock.
+4. B acquires lock and inserts the same element.
+
+P.S. This example was from Piazza, but I was the one that originally posted it.
+
+Q5. Can you implement this by adding to the hash a new function lookup_and_insert_if_absent? Explain.
+
+Yes, we can implement this with the function lookup_and_insert_if_absent. In this function, we merge the functions lookup and insert by locking these two functions together under one sequence of lock and unlock. This way, we can eliminate the double insertion issue as described above.
+
+Q6. Can you implement it by adding new methods to the hash class lock_list and unlock_list? Explain. Implement the simplest solution above that works (or a better one if you think you can think of one).
+
+Yes, we can also implement it by adding these two methods. We can avoid the double insertion issue by first calling lock_list, perform lookup and insert, then finally call unlock_list. This is sequence of calls is essentially what will be done in the function lookup_and_insert_if_absent. Note that we still have to know, and modify the internal implementation of the hash table.
+
+Q7. How difficult was using TM compared to implementing list locking above?
+
+Compared to TM, implementing list locking was harder. It was more involved as we had to delve into the internal implementation of the hash class and modify it.
+
+Q8. What are the pros and cons of this approach?
+
+The pros of this approach is that it eliminates the need for locks and therefore, one thread will never have to wait for another thread which may lead to faster overall processing. The cons of this approach is that every single thread will have its own hash table. This solution may prove to be unfeasible if there will be many threads each with a very large hash table.
+
+Tables for section 4.2
+
+1. Table with samples_to_skip set to 50
+
+                        1 thread   2 threads    4 threads
+original_randtrack      17.918     --           --
+global_lock             19.612     14.604       22.436
+tm                      21.374     21.380       13.734
+list_lock               19.928     10.850       7.146
+element_lock            20.088     10.882       7.550
+reduction               17.904     9.142        4.678
+
+2. Table with samples_to_skip set to 100
+
+                        1 thread   2 threads    4 threads
+original_randtrack      35.240     --           --
+global_lock             36.908     22.734       20.504
+tm                      38.632     29.844       17.452
+list_lock               37.336     19.516       11.304
+element_lock            37.430     19.536       11.686
+reduction               35.248     17.766       9.00
+
+Q9. For samples_to_skip set to 50, what is the overhead for each parallelization approach? Report this as the runtime of the parallel version with one thread divided by the runtime of the single-threaded version.
+
+Overhead of each parallelization methods
+global_lock: 1.095
+tm: 1.193
+list_lock: 1.112
+element_lock: 1.121
+reduction: 0.999
+
+Q10. How does each approach perform as the number threads increases? If performance gets worse for a certain case, explain why that may have happened.
+
+global_lock: The performance increases from one thread to two threads but decreases with four threads. This is because as you increase the thread number to four, there are many threads contending for one lock and therefore, there is a lot of waiting for each thread and throughput suffers.
+tm: The performance increases for all increases in threads. tm does not suffer because its operation allows all loads and store to perform atomically, so its concurrency is actually very fine-grain.
+list_lock: The performance increases for all increases in threads. Since list_locks are more fine-grain, the threads have to wait on each other less, leading to higher concurrency and better overall performance.
+element_lock: The performance increases for all increases in threads. This implementation is even finer-grain. However, since list_lock must be used for lookup, the performance of element_lock is similar, but not better than list_lock.
+reduction: The performance increases for all increases in threads. This implementation has the best performance out of all implementations. This is because since we have a private table for each thread, threads do not have to wait for each other and parallelization is maximized.
+
+Q11. Repeat the data collection above with samples_to_skip set to 100 and give the table. How does this change impact the results compared with when set to 50? Why?
+
+In general, setting samples_to_skip to 100 decreases the performance of all methods at all thread levels. It degrades performance because it simply increases the computation of each thread by a lot (NUM_SEED_STREAMS * SAMPLES_TO_COLLECT * 50).
+
+Q12. Which approach should OptsRus ship? Keep in mind that some customers might be using multicores with more than 4 cores, while others might have only one or two cores.
+
+I would recommend OptsRus to ship the list_lock implementation primarily because it offers the correct balance of fined-grain concurreny, speed, and memory usage. It offers great fined-grain concurrency, as it goes low enough to allow threads to be parallel and not contend with a small number of locks like global_lock. However, it does not go so fined-grain that the speed boosts begin exhibiting diminishing returns like element_locks. Furthermore, element_locks uses more memory than list_locks, so it is out of question that list_lock is better. The speedup of list_lock for each thread increase is really good and it only comes second to reduction. However, we did not opt for reduction because of its memory usage; if a user has many threads and each thread has a very large private hash table, depletion of memory will be very likely. Last, list_locks is better than tm primarily because it is much faster when the number of threads begin to increase.
