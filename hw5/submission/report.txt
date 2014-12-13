@@ -1,0 +1,4 @@
+Timmy Rong Tian Tse (998182657)
+Yuan Xue (998275851)
+
+The main technique that we used to optimize the computation is the use of threads. We used four threads in this optimization because there are four cores on the ug machines. Naturally, this speeds up the overall computation by a factor of four. To further optimize, we first notice that the mod MACRO used to handle the wraparounds at the border values, is only needed at the borders. Yet, it is used for every single neighbour calculation of every cell. Therefore, to optimize this program, we can separate the calculation to the middle values and the border values. In calculating the middle values, we do not call the mod MACRO and just use the neighbour indexes while we use the mod MACRO to calculate neighbour indexes only. This eliminates the bulk of the needless calls to the mod MACRO. Putting these optimizations together we achieved approximately 22 seconds, a 9 times speedup.
